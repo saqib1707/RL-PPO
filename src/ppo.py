@@ -13,6 +13,14 @@ class RolloutBuffer:
         self.state_values = []
         self.dones = []
 
+    def store_transition(self, state, action, logprob, reward, done, state_value):
+        self.states.append(state)
+        self.actions.append(action)
+        self.logprobs.append(logprob)
+        self.rewards.append(reward)
+        self.state_values.append(state_value)
+        self.dones.append(done)
+    
     def clear(self):
         self.states.clear()
         self.actions.clear()
@@ -38,35 +46,34 @@ class ActorCritic(nn.Module):
 
         # create shared feature extractor for both actor and critic
         self.feature_extractor = nn.Sequential(
-            nn.Linear(obs_dim, hidden_dim),
+            nn.Linear(obs_dim, hidden_dim, dtype=torch.float32),
             nn.Tanh(),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32),
             nn.Tanh()
-        )
+        ).to(device)
 
         if continuous_action_space:
-            self.action_var = nn.Parameter(torch.full(size=(action_dim,), fill_value=action_std_init * action_std_init))
-            self.actor_head = nn.Linear(hidden_dim, action_dim)
+            self.action_var = nn.Parameter(torch.full(size=(action_dim,), fill_value=action_std_init * action_std_init)).to(device)
+            self.actor_head = nn.Linear(hidden_dim, action_dim, dtype=torch.float32).to(device)
         else:
             self.actor_head = nn.Sequential(
-                nn.Linear(hidden_dim, action_dim),
+                nn.Linear(hidden_dim, action_dim, dtype=torch.float32),
                 nn.Softmax(dim=-1)
-            )
+            ).to(device)
 
-        self.critic_head = nn.Linear(hidden_dim, 1)
+        self.critic_head = nn.Linear(hidden_dim, 1).to(device)
 
 
     def forward(self, obs):
         features = self.feature_extractor(obs)
         actor_out = self.actor_head(features)
         critic_out = self.critic_head(features)
-        return actor_out, critic_out 
+        return actor_out, critic_out
 
 
     def select_action(self, obs):
         if isinstance(obs, np.ndarray):
             obs = torch.tensor(obs, dtype=torch.float32).to(self.device)
-            # print("Observation shape:", obs.shape)
 
         # print("Observation dim:", obs.dim())
         if obs.dim() == 1:
@@ -75,10 +82,11 @@ class ActorCritic(nn.Module):
         # to prevent unnecessary gradient computation
         with torch.no_grad():
             action_out, value = self.forward(obs)
+            # print('stage-0:', action_out.shape, value, obs.shape)
 
             if self.continuous_action_space:
                 action_cov = torch.diag(self.action_var)    # (na, na)
-                # print(action_out.shape, action_cov.shape)
+                # print('stage-1:', action_out.shape, action_cov.shape)
                 dist = MultivariateNormal(action_out, action_cov)
             else:
                 # print(action_out.shape)
@@ -87,7 +95,14 @@ class ActorCritic(nn.Module):
             action = dist.sample()
             action_logprob = dist.log_prob(action)
 
-        return action.cpu().numpy(), action_logprob.cpu().numpy(), value.item()
+            if self.continuous_action_space:
+                if action.dim() == 2 and action.shape[0] == 1:
+                    action = action.squeeze(0).cpu().numpy()
+            else:
+                # action = torch.clamp(action, -1.0, 1.0)
+                action = action.item()
+
+        return action, action_logprob.cpu().numpy(), value.item()
 
 
     def evaluate_actions(self, states, actions):
@@ -115,7 +130,7 @@ class PPOAgent:
             lr_critic, 
             continuous_action_space=False, 
             num_epochs=10, 
-            clip_thresh=0.2, 
+            eps_clip=0.2, 
             action_std_init=0.6, 
             gamma=0.99,
             entropy_coef=0.01,
@@ -127,7 +142,7 @@ class PPOAgent:
         self.gamma = gamma
         self.num_epochs = num_epochs
         self.batch_size = batch_size
-        self.clip_thresh = clip_thresh
+        self.eps_clip = eps_clip
         self.value_loss_coef = value_loss_coef
         self.entropy_coef = entropy_coef
 
@@ -167,7 +182,7 @@ class PPOAgent:
             returns.insert(0, discounted_reward)
 
         returns = np.array(returns, dtype=np.float32)
-        returns = torch.flatten(torch.from_numpy(returns))
+        returns = torch.flatten(torch.from_numpy(returns).float()).to(self.device)
         return returns
 
 
@@ -176,12 +191,13 @@ class PPOAgent:
         rewards_to_go = self.compute_returns()
         # print(len(rewards_to_go))
 
-        states = torch.from_numpy(np.array(self.buffer.states)).to(self.device)
-        actions = torch.from_numpy(np.array(self.buffer.actions)).to(self.device)
-        old_logprobs = torch.from_numpy(np.array(self.buffer.logprobs)).to(self.device)
-        state_vals = torch.from_numpy(np.array(self.buffer.state_values)).to(self.device)
+        states = torch.from_numpy(np.array(self.buffer.states)).float().to(self.device)
+        actions = torch.from_numpy(np.array(self.buffer.actions)).float().to(self.device)
+        old_logprobs = torch.from_numpy(np.array(self.buffer.logprobs)).float().to(self.device)
+        state_vals = torch.from_numpy(np.array(self.buffer.state_values)).float().to(self.device)
 
         # print('stage-0:', rewards_to_go.shape, state_vals.shape)
+        # print('stage-1:', rewards_to_go.device, state_vals.device)
         advantages = rewards_to_go - state_vals
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
 
@@ -211,7 +227,7 @@ class PPOAgent:
                 # Finding Surrogate Loss
                 # print(ratios.shape, batch_advantages.shape)
                 surr1 = ratios * batch_advantages
-                surr2 = torch.clamp(ratios, 1-self.clip_thresh, 1+self.clip_thresh) * batch_advantages
+                surr2 = torch.clamp(ratios, 1-self.eps_clip, 1+self.eps_clip) * batch_advantages
 
                 # final loss of clipped objective PPO
                 actor_loss = -torch.min(surr1, surr2).mean()

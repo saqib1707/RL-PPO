@@ -1,0 +1,42 @@
+# training hparams
+num_train_steps: 3000000
+update_interval: 5000
+num_epochs: 100
+batch_size: 64
+gamma: 0.99
+eps_clip: 0.2
+action_std_init: 0.6
+action_std_decay_rate: 0.05
+min_action_std: 0.1
+entropy_coef: 0.01
+value_loss_coef: 0.5
+max_grad_norm: 0.5
+mode: "train"
+
+# network hparams
+agent: "ppo"
+hidden_dim: 64
+activation: "tanh"
+lr_actor: 0.0003
+lr_critic: 0.001
+
+# env hparams
+env_name: "Walker2d-v4"
+continuous_action_space: true
+max_eps_steps: 1000
+random_seed: 42
+
+# logging hparams
+wandb_project: "ppo-experiments"
+wandb_entity: "saqib1707"
+exp_name: ""
+run_id: 1
+# log_interval: ${max_eps_steps * 5}
+# save_interval: ${max_eps_steps * 10}
+log_interval: 10000
+save_interval: 500000
+log_dir: "../logs/"
+ckpt_dir: "../checkpoints/"
+
+# evaluation hparams
+num_eval_eps: 10

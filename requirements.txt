@@ -3,4 +3,8 @@ pandas
 tqdm
 torch
 gym
-roboschool
+box2d
+box2d-py
+pygame
+wandb
+colorlog
