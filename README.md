@@ -19,7 +19,7 @@ Key Features:
 
 Clone the repository
 ```bash
-git clone https://github.com/saqib1707/PPO-PyTorch.git
+git clone https://github.com/saqib1707/RL-PPO-PyTorch.git
 cd PPO-PyTorch
 ```
 
@@ -129,7 +129,7 @@ If you use this repository in your research, please consider citing it:
     year = {2024},
     publisher = {GitHub},
     journal = {GitHub repository},
-    howpublished = {\url{https://github.com/saqib1707/PPO-PyTorch}},
+    howpublished = {\url{https://github.com/saqib1707/RL-PPO-PyTorch}},
 }
 ```
 
